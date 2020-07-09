@@ -3,6 +3,7 @@ package util
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha512"
 	"encoding/hex"
 	"fmt"
@@ -127,23 +128,20 @@ func ValidateName(name string) bool {
 func Execute(binary string, args []string) (string, error) {
 	var output []byte
 	var err error
-	cmd := exec.Command(binary, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
 	done := make(chan struct{})
+	cmd := exec.CommandContext(ctx, binary, args...)
 
 	go func() {
 		output, err = cmd.CombinedOutput()
-		done <- struct{}{}
+		close(done)
 	}()
 
 	select {
 	case <-done:
-	case <-time.After(cmdTimeout):
-		if cmd.Process != nil {
-			if err := cmd.Process.Kill(); err != nil {
-				logrus.Warnf("Problem killing process pid=%v: %s", cmd.Process.Pid, err)
-			}
-
-		}
+		break
+	case <-ctx.Done():
 		return "", fmt.Errorf("Timeout executing: %v %v, output %v, error %v", binary, args, string(output), err)
 	}
 
